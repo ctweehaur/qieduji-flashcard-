@@ -10,7 +10,8 @@ let isWeaknessMode = false; // 是否处于错题专项训练模式
 let quizQuestions = [];     // 测验题目队列
 let quizCurrentIndex = 0;   // 当前题号
 let quizScore = 0;          // 答对题数
-const QUIZ_TOTAL = 5;       // 每次测验固定 5 题
+let quizHistory = [];       // 已考过的词汇记录（用于避免重复）
+let quizRound = 0;          // 当前轮次
 
 if (typeof allIdioms === 'undefined') {
     console.error("错误：未找到生词数据，请检查 data.js 是否正确引入！");
@@ -28,6 +29,10 @@ function initApp() {
         currentPlan = [...allIdioms].sort(() => 0.5 - Math.random());
         currentIndex = 0;
         isWeaknessMode = false;
+        
+        // 重置测验历史
+        quizHistory = [];
+        quizRound = 0;
         
         setupFlipEvent();
         renderCard();
@@ -50,7 +55,7 @@ function renderCard() {
     isFlipped = false;
 
     // 正面渲染
-    const rubyContainer = document.getElementById('card-idiom-ruby');
+    const rubyContainer = document.getElementById('card-word-ruby');
     if (rubyContainer) {
         const wordText = currentWord.word || "未知生词";
         const pinyinText = currentWord.pinyin || "";
@@ -137,7 +142,6 @@ function markMastery(isMastered) {
         if (isWeaknessMode) {
             showToast("👑 太棒了！本轮错题专项集训全部通关！");
             isWeaknessMode = false;
-            // 重新打乱全部数据
             currentPlan = [...allIdioms].sort(() => 0.5 - Math.random());
             currentIndex = 0;
         } else {
@@ -167,7 +171,7 @@ function updateWeaknessButton(count) {
 }
 
 function showEmptyState() {
-    const rubyContainer = document.getElementById('card-idiom-ruby');
+    const rubyContainer = document.getElementById('card-word-ruby');
     if (rubyContainer) rubyContainer.innerHTML = `<span class="text-base text-stone-400">暂无生词数据</span>`;
 }
 
@@ -221,16 +225,43 @@ function updateMasteryProgress() {
 // 开启测验
 function startQuiz() {
     if (!allIdioms || allIdioms.length < 4) {
-        showToast("⚠️ 数据源生词数量不足 4 个，无法生成选择题选项！", "error");
+        showToast("⚠️ 生词数量不足 4 个，无法生成选择题！", "error");
         return;
     }
 
-    document.getElementById('quiz-question-container').classList.remove('hidden');
-    document.getElementById('quiz-result-container').classList.add('hidden');
-
-    const shuffled = [...allIdioms].sort(() => 0.5 - Math.random());
-    quizQuestions = shuffled.slice(0, Math.min(QUIZ_TOTAL, allIdioms.length));
+    // 获取所有未被考过的词
+    const availableWords = allIdioms.filter(item => !quizHistory.includes(item.word));
     
+    // 如果所有词都考过了，重置历史并增加轮次
+    if (availableWords.length === 0) {
+        quizHistory = [];
+        quizRound++;
+        showToast(`🔄 第 ${quizRound} 轮完成！开始新一轮测试`, "success");
+        // 重新获取可用词
+        const newAvailable = allIdioms.filter(item => !quizHistory.includes(item.word));
+        if (newAvailable.length === 0) {
+            showToast("⚠️ 没有可用的生词了！", "error");
+            return;
+        }
+        // 更新可用词列表
+        const shuffled = [...newAvailable].sort(() => 0.5 - Math.random());
+        const actualTotal = Math.min(5, shuffled.length);
+        quizQuestions = shuffled.slice(0, actualTotal);
+    } else {
+        // 从可用词中随机选5个（或不足5个就全选）
+        const shuffled = [...availableWords].sort(() => 0.5 - Math.random());
+        const actualTotal = Math.min(5, shuffled.length);
+        quizQuestions = shuffled.slice(0, actualTotal);
+    }
+
+    // 记录本次考过的词
+    quizQuestions.forEach(q => {
+        if (!quizHistory.includes(q.word)) {
+            quizHistory.push(q.word);
+        }
+    });
+
+    // 随机分配三种题型
     quizQuestions = quizQuestions.map(q => {
         return {
             ...q,
@@ -241,6 +272,11 @@ function startQuiz() {
     quizCurrentIndex = 0;
     quizScore = 0;
 
+    document.getElementById('quiz-question-container').classList.remove('hidden');
+    document.getElementById('quiz-result-container').classList.add('hidden');
+
+    // 更新弹窗标题，显示轮次
+    document.getElementById('quiz-title-text').innerText = `🎯 生词测验 - 第 ${quizRound + 1} 轮`;
     document.getElementById('quiz-modal').classList.remove('hidden');
     renderQuizQuestion();
 }
@@ -369,7 +405,12 @@ function showQuizResults() {
     } else if (quizScore >= 3) {
         evaluation = "👍 及格啦，答错的词已经自动帮你放入错题库啰！";
     }
-    document.getElementById('quiz-eval').innerText = evaluation;
+    
+    // 显示剩余未考词数量
+    const remaining = allIdioms.filter(item => !quizHistory.includes(item.word)).length;
+    evaluation += `<br><span class="text-[10px] text-stone-400">剩余 ${remaining} 个生词待测试</span>`;
+    
+    document.getElementById('quiz-eval').innerHTML = evaluation;
 }
 
 // 启动执行
